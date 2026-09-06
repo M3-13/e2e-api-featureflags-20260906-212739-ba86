@@ -60,3 +60,24 @@ All endpoints respond with `application/json`.
 - Input validation with structured `{"error": ...}` responses
 - Access logging middleware (method, path, status code)
 - Health check endpoint
+
+## Versioning
+
+The service follows **Semantic Versioning (SemVer)**: `MAJOR.MINOR.PATCH`. The
+current version is reported by the health endpoint (`GET /healthz`). Security
+fixes are shipped as new releases; see [SECURITY.md](./SECURITY.md) for the
+update/patch procedure and the support window.
+
+## Security & Privacy
+
+Security and privacy are documented in dedicated files:
+
+- **[SECURITY.md](./SECURITY.md)** — security contact, vulnerability reporting
+  procedure, support window, update/patch procedure, and binding operating
+  requirements (TLS-terminating reverse proxy required, no security decisions).
+- **[PRIVACY.md](./PRIVACY.md)** — description of how the `user` parameter is
+  processed (purpose, data category, legal basis, retention, recipients,
+  data-subject rights).
+
+A minimal SPDX software bill of materials is available in
+**[sbom.json](./sbom.json)** (no external dependencies).
