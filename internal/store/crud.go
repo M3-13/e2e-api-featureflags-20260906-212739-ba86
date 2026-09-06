@@ -2,14 +2,21 @@ package store
 
 import "sort"
 
+// maxFlags is the maximum number of flags the store will hold.
+const maxFlags = 1000
+
 // Create stores a new flag. It returns ErrDuplicate if a flag with the same
-// key already exists.
+// key already exists, and ErrTooManyFlags if the store already holds maxFlags
+// flags.
 func (s *Store) Create(f Flag) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if _, ok := s.flags[f.Key]; ok {
 		return ErrDuplicate
+	}
+	if len(s.flags) >= maxFlags {
+		return ErrTooManyFlags
 	}
 	s.flags[f.Key] = f
 	return nil

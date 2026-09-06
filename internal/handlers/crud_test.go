@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,6 +85,103 @@ func TestCreateFlagInvalidJSON(t *testing.T) {
 	s := newStore()
 	h := CreateFlag(s)
 	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(`{invalid`))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400", rr.Code)
+	}
+	assertErrorBody(t, rr)
+}
+
+func TestCreateFlagInvalidKeyCharacters(t *testing.T) {
+	for _, key := range []string{"bad key", "key!", "key:1", "key/1", "ke@y", "key[]"} {
+		s := newStore()
+		h := CreateFlag(s)
+		body := `{"key":` + jsonString(key) + `}`
+		req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(body))
+		rr := httptest.NewRecorder()
+		h(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("key=%q status: got %d want 400", key, rr.Code)
+		}
+		assertErrorBody(t, rr)
+	}
+}
+
+func TestCreateFlagKeyTooLong(t *testing.T) {
+	s := newStore()
+	h := CreateFlag(s)
+	key := strings.Repeat("a", 129)
+	body := `{"key":` + jsonString(key) + `}`
+	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400", rr.Code)
+	}
+	assertErrorBody(t, rr)
+}
+
+func TestCreateFlagKeyMaxLengthOK(t *testing.T) {
+	s := newStore()
+	h := CreateFlag(s)
+	key := strings.Repeat("a", 128)
+	body := `{"key":` + jsonString(key) + `}`
+	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status: got %d want 201", rr.Code)
+	}
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestCreateFlagTooManyFlags(t *testing.T) {
+	s := newStore()
+	for i := 0; i < 1000; i++ {
+		if err := s.Create(store.Flag{Key: fmt.Sprintf("flag-%d", i)}); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	h := CreateFlag(s)
+	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(`{"key":"overflow"}`))
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400", rr.Code)
+	}
+	assertErrorBody(t, rr)
+}
+
+func TestUpdateFlagInvalidKeyCharacters(t *testing.T) {
+	s := newStore()
+	h := UpdateFlag(s)
+	req := httptest.NewRequest(http.MethodPut, "/flags/bad!key", strings.NewReader(`{"enabled":true}`))
+	req.SetPathValue("key", "bad!key")
+	rr := httptest.NewRecorder()
+	h(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400", rr.Code)
+	}
+	assertErrorBody(t, rr)
+}
+
+func TestUpdateFlagKeyTooLong(t *testing.T) {
+	s := newStore()
+	h := UpdateFlag(s)
+	key := strings.Repeat("a", 129)
+	req := httptest.NewRequest(http.MethodPut, "/flags/"+key, strings.NewReader(`{"enabled":true}`))
+	req.SetPathValue("key", key)
 	rr := httptest.NewRecorder()
 	h(rr, req)
 

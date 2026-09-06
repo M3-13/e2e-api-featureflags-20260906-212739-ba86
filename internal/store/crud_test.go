@@ -31,6 +31,30 @@ func TestCreateDuplicate(t *testing.T) {
 	}
 }
 
+func TestCreateTooManyFlags(t *testing.T) {
+	s := New()
+	for i := 0; i < maxFlags; i++ {
+		if err := s.Create(Flag{Key: fmt.Sprintf("flag-%d", i)}); err != nil {
+			t.Fatalf("Create %d: %v", i, err)
+		}
+	}
+	if err := s.Create(Flag{Key: "overflow"}); err != ErrTooManyFlags {
+		t.Fatalf("Create over limit: got %v want %v", err, ErrTooManyFlags)
+	}
+}
+
+func TestCreateAtLimitAllowsUpToMax(t *testing.T) {
+	s := New()
+	for i := 0; i < maxFlags; i++ {
+		if err := s.Create(Flag{Key: fmt.Sprintf("flag-%d", i)}); err != nil {
+			t.Fatalf("Create %d: %v", i, err)
+		}
+	}
+	if got := len(s.List()); got != maxFlags {
+		t.Fatalf("List len: got %d want %d", got, maxFlags)
+	}
+}
+
 func TestListSorted(t *testing.T) {
 	s := New()
 	for _, key := range []string{"b", "a", "c"} {

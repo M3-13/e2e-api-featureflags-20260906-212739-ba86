@@ -18,8 +18,9 @@ type Store struct {
 }
 
 var (
-	ErrNotFound  = errors.New("flag not found")
-	ErrDuplicate = errors.New("flag already exists")
+	ErrNotFound     = errors.New("flag not found")
+	ErrDuplicate    = errors.New("flag already exists")
+	ErrTooManyFlags = errors.New("too many flags")
 )
 
 func New() *Store {

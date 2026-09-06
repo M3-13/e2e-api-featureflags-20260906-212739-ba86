@@ -4,11 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 
 	"e2e-api-featureflags/internal/store"
 )
 
 const maxBodyBytes = 1 << 20 // 1 MB
+
+// keyPattern matches a valid flag key: 1 to 128 characters from
+// [a-zA-Z0-9._-].
+var keyPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,128}$`)
 
 // decodeBody limits the request body and decodes it as JSON. On failure it
 // writes a 400 error and returns false.
@@ -40,6 +45,10 @@ func CreateFlag(s *store.Store) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "key must not be empty")
 			return
 		}
+		if !keyPattern.MatchString(f.Key) {
+			writeError(w, http.StatusBadRequest, "key must match ^[a-zA-Z0-9._-]{1,128}$")
+			return
+		}
 		if !validRollout(f.RolloutPercent) {
 			writeError(w, http.StatusBadRequest, "rollout_percent must be between 0 and 100")
 			return
@@ -47,6 +56,10 @@ func CreateFlag(s *store.Store) http.HandlerFunc {
 		if err := s.Create(f); err != nil {
 			if errors.Is(err, store.ErrDuplicate) {
 				writeError(w, http.StatusConflict, "flag already exists")
+				return
+			}
+			if errors.Is(err, store.ErrTooManyFlags) {
+				writeError(w, http.StatusBadRequest, "too many flags")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "internal server error")
@@ -80,6 +93,10 @@ func UpdateFlag(s *store.Store) http.HandlerFunc {
 
 		var f store.Flag
 		if !decodeBody(w, r, &f) {
+			return
+		}
+		if !keyPattern.MatchString(key) {
+			writeError(w, http.StatusBadRequest, "key must match ^[a-zA-Z0-9._-]{1,128}$")
 			return
 		}
 		if !validRollout(f.RolloutPercent) {
