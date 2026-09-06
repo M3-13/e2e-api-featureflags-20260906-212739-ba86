@@ -1,49 +1,114 @@
-VERDICT: CHANGES_REQUESTED
+VERDICT: APPROVED
 
-## Prüfbericht – Feature-Flag-Service (Go-Backend)
+Geprüfter Stand: Feature-Flag-Service als Go-Backend mit net/http, In-Memory-Store, Auth- und Logging-Middleware. Reine REST-API ohne Endnutzer-UI; daher sind Impressums-, Cookie-, Consent- und Barrierefreiheitspflichten nicht anwendbar. Die Bewertung berücksichtigt ausschließlich den sichtbaren Code- und Spezifikationsstand.
 
-### 1. GDPR (DSGVO)
+Gesamtbewertung: Keine offenen Rechtsblocker. Einige mittlere und niedrige Härtungsempfehlungen, insbesondere zu Transportverschlüsselung und der Verarbeitung des `user`-Parameters als Query-String. Keine kritischen Verstöße gegen DSGVO, CRA oder AI Act.
 
-#### Befund 1: Fehlende Transportverschlüsselung (TLS)
-- **Schweregrad:** hoch
-- **Beschreibung:** `main.go` startet den Server mit `http.ListenAndServe(":"+port, handler)` ohne TLS. Die Route `GET /flags/{key}/evaluate?user=...` überträgt den `user`-Parameter (personenbezogene Daten) im Klartext, sofern kein TLS-terminierender Reverse-Proxy vorgeschaltet ist. Da der Server an alle Interfaces bindet (`":8080"`), ist eine unverschlüsselte Erreichbarkeit wahrscheinlich. Dies verletzt Art. 32 DSGVO (Sicherheit der Verarbeitung) und die CRA-Anforderungen an sichere Kommunikation.
-- **Konkrete Behebung:** In `main.go` TLS aktivieren, z. B. `http.ListenAndServeTLS(":"+port, certFile, keyFile, handler)`. Alternativ im README eindeutig dokumentieren, dass der Dienst ausschließlich hinter einem TLS-terminierenden Reverse-Proxy (nginx, Load Balancer) betrieben werden darf, und diese Vorgabe im Deployment durchsetzen.
+---
 
-#### Befund 2: Fehlende Authentifizierung und Zugriffskontrolle
-- **Schweregrad:** hoch
-- **Beschreibung:** Die REST-API hat keinerlei Authentifizierung oder Autorisierung. Jeder mit Netzwerkzugriff kann Flags anlegen, ändern, löschen und evaluieren. Dies verletzt Art. 25 DSGVO (Datenschutz durch Technikgestaltung, Zugriffskontrolle) und ist zugleich ein CRA-Verstoß (security by design). Unautorisierte Änderungen können die Produktfunktionalität beeinträchtigen und die Einschleusung personenbezogener Daten über Flag-Beschreibungen ermöglichen.
-- **Konkrete Behebung:** In `main.go` eine Authentifizierungs-/Autorisierungs-Middleware einfügen (z. B. API-Key, mTLS, OAuth2). Schreibzugriffe (POST, PUT, DELETE) nur für autorisierte Clients zulassen; Lesezugriffe können offen bleiben oder ebenfalls gesichert werden. Falls der Dienst nur in einem privaten, vertrauenswürdigen Netz betrieben wird, dies im README klar festhalten und die Netzwerksegmentierung dokumentieren.
+## 1) DSGVO / Datenschutz
 
-#### Befund 3: Potenzielle Protokollierung personenbezogener Daten über Flag-Keys
-- **Schweregrad:** mittel
-- **Beschreibung:** `internal/middleware/logging.go` loggt `r.URL.Path`, das den Flag-Key enthält. Der Key wird in `internal/handlers/crud.go` nur auf leer geprüft, nicht auf erlaubte Zeichen oder Länge. Ein Betreiber oder Angreifer könnte daher Keys mit personenbezogenen Daten (z. B. E-Mail-Adresse) anlegen; diese erscheinen dann in den Logs. Das verletzt den Grundsatz der Datenminimierung (Art. 5 Abs. 1 lit. c DSGVO).
-- **Konkrete Behebung:** In `internal/handlers/crud.go` eine Key-Validierung ergänzen: nur `[a-zA-Z0-9._-]{1,128}` zulassen. Alternativ im Logging nur den normalisierten Endpunkt ohne Schlüssel loggen (z. B. per Regex maskieren) oder eine Positivliste von Endpunkten verwenden.
+### Positiv
+- Die Logging-Middleware protokolliert ausschließlich `Methode`, `Pfad` und `Status` – kein Query-String, keine Header, keine Bodies. Tests belegen, dass `user` und andere Query-Werte nicht geloggt werden.
+- Der In-Memory-Store enthält laut Modell nur `key`, `enabled`, `description`, `rollout_percent`. Nutzer-IDs werden nicht gespeichert.
+- Fehlerantworten enthalten ausschließlich `{"error":"..."}` und keine internen Details, Stacktraces oder Dateipfade.
+- Request-Body-Größe wird über `http.MaxBytesReader` auf 1 MB begrenzt.
+- Die Auth-Middleware ist fail-closed: Bei leerem Token werden alle geschützten Routen mit 401 abgewiesen.
 
-#### Befund 4: Fehlende Datenschutzdokumentation / Rechtsgrundlage
-- **Schweregrad:** mittel
-- **Beschreibung:** Es gibt keine Datenschutzerklärung, kein Verarbeitungsverzeichnis und keinen Hinweis auf die Rechtsgrundlage für die kurzzeitige Verarbeitung des `user`-Parameters. Der Betreiber muss die Verarbeitung dokumentieren und betroffene Personen informieren (Art. 13, 30 DSGVO), auch wenn der Dienst kein Endnutzer-UI besitzt.
-- **Konkrete Behebung:** Im `README.md` oder in einer separaten `PRIVACY.md` die Verarbeitung beschreiben: Zweck (deterministische Feature-Evaluierung), Datenkategorien (Nutzerkennung), Rechtsgrundlage (z. B. Art. 6 Abs. 1 lit. b oder f DSGVO), Speicherdauer (keine dauerhafte Speicherung, nur flüchtige Verarbeitung im Arbeitsspeicher), Empfänger (keine), Betroffenenrechte. Zusätzlich einen Auftragsverarbeitungsvertrag (AVV) bereitstellen, falls der Dienst im Auftrag Dritter betrieben wird.
+### Findings
 
-### 2. EU Cyber Resilience Act (CRA)
+**DSGVO-1 (mittel) – `user`-Parameter im GET-Query**  
+`GET /flags/{key}/evaluate?user=...` verarbeitet den `user`-Parameter als Teil der URL. Die interne Middleware filtert ihn heraus, aber vorgelagerte Systeme (Reverse-Proxys, CDN-, Access- oder Browser-Verläufe) können Query-Strings protokollieren. Das ist ein unnötiges Datenschutzrisiko.
 
-#### Befund 5: Fehlende SBOM und dokumentierte Sicherheitseigenschaften
-- **Schweregrad:** mittel
-- **Beschreibung:** Es gibt keine SBOM-Datei (z. B. CycloneDX/SPDX) und keine `SECURITY.md`. Die CRA verlangt für Produkte mit digitalen Elementen eine SBOM sowie dokumentierte Sicherheitseigenschaften.
-- **Konkrete Behebung:** Eine SBOM erstellen (z. B. mit `syft` oder `govulncheck`) und als `sbom.json` im Repository einchecken. Eine `SECURITY.md` mit Sicherheitskontakt, Meldeverfahren für Schwachstellen, Support-Zeitraum und Update-Verpflichtung anlegen und im `README.md` darauf verweisen.
+**Maßnahme (konkret):**  
+Mittelfristig auf `POST /flags/{key}/evaluate` mit JSON-Body `{"user":"..."}` umstellen. Die Akzeptanzkriterien AC-08 bis AC-10 bleiben funktional erfüllbar; die zugehörigen Tests in `internal/handlers/evaluate_test.go` und ggf. die Route in `main.go` anpassen. Alternativ verbindlich in `PRIVACY.md` dokumentieren, dass vorgelagerte Systeme Query-Strings nicht protokollieren bzw. redigieren müssen.
 
-#### Befund 6: Kein dokumentierter Update-/Patch-Prozess
-- **Schweregrad:** niedrig
-- **Beschreibung:** Es ist kein Prozess erkennbar, wie Sicherheitsupdates bereitgestellt werden. Die CRA verpflichtet Hersteller, während des Support-Zeitraums Sicherheitsupdates bereitzustellen.
-- **Konkrete Behebung:** Im `README.md` oder in der `SECURITY.md` einen Abschnitt zum Update-/Patch-Verfahren aufnehmen. Eine Versionsnummerierung (SemVer) einführen und im Health-Endpoint (`/healthz`) oder über einen neuen `/version`-Endpunkt die aktuelle Version ausgeben, damit Updates nachvollziehbar sind.
+**DSGVO-2 (mittel) – Fehlende Transportverschlüsselung**  
+`main.go` startet ausschließlich `http.ListenAndServe`. Der Default-Bind `127.0.0.1` ist sicher, aber sobald `BIND_ADDR` auf eine externe Schnittstelle gesetzt wird, laufen Bearer-Token und `user`-Parameter im Klartext. Art. 32 DSGVO verlangt geeignete technische und organisatorische Maßnahmen.
 
-### 3. EU AI Act
-Nicht anwendbar: Das Produkt enthält keine KI-Funktionen.
+**Maßnahme (konkret):**  
+In `main.go` TLS-Support ergänzen, z. B. über eine konfigurierbare TLS-Option:
+- `TLS_CERT_FILE` / `TLS_KEY_FILE` auslesen und bei Vorhandensein `server.ListenAndServeTLS(...)` verwenden, sonst bisheriges Verhalten.
+- Oder in `SECURITY.md` verbindlich einen TLS-terminierenden Reverse-Proxy als Betriebsvoraussetzung festschreiben.
 
-### 4. Pflichttexte & UI
-Nicht anwendbar: Reines Backend ohne Endnutzer-UI; daher keine Legal-Notice-, Cookie-, Widerrufs- oder Barrierefreiheitspflichten.
+**DSGVO-3 (niedrig) – Freitextfeld `description`**  
+`Flag.Description` ist unbegrenzt befüllbar. Wenn Betreiber dort personenbezogene Daten eintragen, lägen diese im In-Memory-Store. Das System selbst sieht keine PII-Speicherung vor, kann sie aber nicht verhindern.
 
-### 5. Barrierefreiheit
-Nicht anwendbar: Kein öffentliches Web-UI; die EAA/WCAG/BITV-Anforderungen greifen nicht.
+**Maßnahme (konkret):**  
+In `PRIVACY.md`/`README.md` aufnehmen, dass `description` ausschließlich sachliche Flag-Beschreibungen ohne personenbezogene Daten enthalten darf. Optional eine maximale Zeichenlänge für `description` in `internal/handlers/crud.go` validieren.
 
-## Fazit
-Die Kernfunktionalität ist solide umgesetzt: Datenminimierung beim Nutzer-Parameter, Body-Limit, saubere Fehlerantworten und Race-freie Speicherung sind vorhanden. Es bestehen jedoch wesentliche Sicherheits- und Dokumentationslücken (TLS, Zugriffskontrolle, SBOM/Privacy-Doku), die vor einem Markteinsatz behoben werden müssen. Nach Umsetzung der genannten Maßnahmen kann die Freigabe erfolgen.
+**DSGVO-4 (niedrig) – Pfad-Logging enthält Flag-Key**  
+Die Logging-Middleware protokolliert den konkreten Pfad, z. B. `/flags/my-key/evaluate`. Der Flag-Key ist normalerweise kein personenbezogenes Datum, kann aber vom Betreiber personenbezogen gewählt werden.
+
+**Maßnahme (konkret):**  
+In `PRIVACY.md` ergänzen, dass Flag-Keys keine personenbezogenen Daten enthalten dürfen. Falls möglich, statt des konkreten Keys das Route-Template loggen; das ist aber nicht blockierend, da AC-14 den Pfad ausdrücklich verlangt.
+
+---
+
+## 2) EU Cyber Resilience Act (CRA)
+
+### Positiv
+- `sbom.json` ist vorhanden.
+- `SECURITY.md` ist vorhanden.
+- `/healthz` liefert eine Versionskennung.
+- Security-by-design-Elemente: Fail-Closed-Auth, Body-Limit, Input-Validierung, keine internen Fehlerdetails.
+
+### Findings
+
+**CRA-1 (mittel) – Fehlende HTTP-Server-Timeouts**  
+`main.go` verwendet `http.ListenAndServe(addr, handler)`, ohne `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout` oder `IdleTimeout`. Das öffnet die Tür für Slowloris-ähnliche Ressourcenbindung.
+
+**Maßnahme (konkret):**  
+In `main.go` einen expliziten `http.Server` mit Timeouts verwenden:
+```go
+srv := &http.Server{
+    Addr:              addr,
+    Handler:           handler,
+    ReadHeaderTimeout: 5 * time.Second,
+    ReadTimeout:       15 * time.Second,
+    WriteTimeout:      15 * time.Second,
+    IdleTimeout:       60 * time.Second,
+}
+log.Fatal(srv.ListenAndServe())
+```
+Dazu `time` importieren.
+
+**CRA-2 (mittel) – Fehlende Transportverschlüsselung**  
+Identisch mit DSGVO-2. Der Dienst bietet keine native TLS-Terminierung. Wenn das Produkt nicht ausschließlich hinter einem TLS-terminierenden Reverse Proxy betrieben wird, ist die Übertragung unverschlüsselt.
+
+**Maßnahme (konkret):**  
+TLS-Option in `main.go` ergänzen oder in `SECURITY.md` als verbindliche Betriebsvoraussetzung dokumentieren. `SECURITY.md` sollte außerdem einen kurzen Patch-/Update-Prozess enthalten, z. B. „Sicherheitsupdates werden über getaggte Releases bereitgestellt und per Deployment eingespielt.“
+
+**CRA-3 (niedrig) – Patch-/Update-Prozess nicht im Code sichtbar**  
+Ein automatischer Update-Mechanismus ist für ein Quellcode-Backend nicht zwingend, aber der Prozess sollte dokumentiert sein.
+
+**Maßnahme (konkret):**  
+In `SECURITY.md` einen knappen Abschnitt „Updates & Patches“ ergänzen. Nicht blockierend.
+
+---
+
+## 3) EU AI Act
+
+Nicht anwendbar: Das Produkt enthält keine KI-Funktion und keine automatisierte Entscheidungsfindung im Sinne des AI Act. Die Rollout-Logik ist eine deterministische Hash-Bucket-Berechnung ohne Lern- oder Inferenzkomponente. Kein Handlungsbedarf.
+
+---
+
+## 4) Pflichttexte & UI
+
+Nicht anwendbar: Reines Backend ohne Endnutzer-UI. Es bestehen keine Impressums-, Cookie-, Consent- oder Widerrufsbelehrungspflichten. Vorhandene Dokumentationsdateien `README.md`, `PRIVACY.md`, `COMPLIANCE.md` und `SECURITY.md` decken die Dokumentationsseite grundsätzlich ab.
+
+Empfehlung: `PRIVACY.md` und `README.md` um die oben genannten Betriebshinweise ergänzen:
+- Standardmäßig nur Loopback-Binding.
+- TLS-Terminierung bei externer Exposition.
+- Verbot personenbezogener Daten in Flag-Keys und `description`.
+- Kein Query-Logging in vorgelagerten Systemen.
+
+---
+
+## 5) Barrierefreiheit
+
+Nicht anwendbar: Keine öffentliche Web-UI, nur REST/JSON. Keine WCAG-/BITV-/EAA-Pflichten.
+
+---
+
+**Fazit:** Keine kritischen Befunde und keine rechtlichen Blocker. Die mittleren Punkte DSGVO-1, DSGVO-2, CRA-1 und CRA-2 sollten im nächsten Sprint als Härtung eingeplant werden. Sie blockieren den aktuellen Stand nicht, da der Dienst standardmäßig nur auf `127.0.0.1` lauscht und die internen Logs keine personenbezogenen Daten enthalten.
