@@ -1,0 +1,32 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "e2e-api-featureflags",
+  "documentNamespace": "https://spdx.org/spdxdocs/e2e-api-featureflags-0.1.0",
+  "creationInfo": {
+    "created": "2026-09-06T00:00:00Z",
+    "creators": [
+      "Tool: manual"
+    ],
+    "licenseListVersion": "3.24"
+  },
+  "documentDescribes": [
+    "SPDXRef-Package-e2e-api-featureflags"
+  ],
+  "packages": [
+    {
+      "name": "e2e-api-featureflags",
+      "SPDXID": "SPDXRef-Package-e2e-api-featureflags",
+      "versionInfo": "0.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "supplier": "NOASSERTION",
+      "externalRefs": []
+    }
+  ],
+  "relationships": []
+}
