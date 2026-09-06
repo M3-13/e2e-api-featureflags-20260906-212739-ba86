@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -16,21 +17,31 @@ func main() {
 		port = "8080"
 	}
 
+	bindAddr := os.Getenv("BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+
+	apiToken := os.Getenv("FLAG_API_TOKEN")
+
 	s := store.New()
 
+	auth := middleware.Auth(apiToken)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /flags", handlers.CreateFlag(s))
-	mux.HandleFunc("GET /flags", handlers.ListFlags(s))
-	mux.HandleFunc("GET /flags/{key}", handlers.GetFlag(s))
-	mux.HandleFunc("PUT /flags/{key}", handlers.UpdateFlag(s))
-	mux.HandleFunc("DELETE /flags/{key}", handlers.DeleteFlag(s))
-	mux.HandleFunc("GET /flags/{key}/evaluate", handlers.EvaluateFlag(s))
-	mux.HandleFunc("GET /healthz", handlers.Healthz())
+	mux.Handle("POST /flags", auth(handlers.CreateFlag(s)))
+	mux.Handle("GET /flags", auth(handlers.ListFlags(s)))
+	mux.Handle("GET /flags/{key}", auth(handlers.GetFlag(s)))
+	mux.Handle("PUT /flags/{key}", auth(handlers.UpdateFlag(s)))
+	mux.Handle("DELETE /flags/{key}", auth(handlers.DeleteFlag(s)))
+	mux.Handle("GET /flags/{key}/evaluate", auth(handlers.EvaluateFlag(s)))
+	mux.Handle("GET /healthz", handlers.Healthz())
 
 	handler := middleware.Logging(mux)
 
-	log.Printf("listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	addr := net.JoinHostPort(bindAddr, port)
+	log.Printf("listening on %s", addr)
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatal(err)
 	}
 }
